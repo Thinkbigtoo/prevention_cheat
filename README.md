@@ -1,172 +1,86 @@
-# Gaze Tracking
+# Gaze Tracking System
 
-![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)
-![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-[![GitHub stars](https://img.shields.io/github/stars/antoinelame/GazeTracking.svg?style=social)](https://github.com/antoinelame/GazeTracking/stargazers)
+시선 추적 시스템은 OpenCV와 MediaPipe를 사용하여 사용자의 시선을 추적하고, 손 제스처를 인식하는 시스템입니다.
 
-This is a Python (2 and 3) library that provides a **webcam-based eye tracking system**. It gives you the exact position of the pupils and the gaze direction, in real time.
+## 기능
 
-[![Demo](https://i.imgur.com/WNqgQkO.gif)](https://youtu.be/YEZMk1P0-yw)
+- 실시간 시선 추적
+- 손 제스처 인식
+- MariaDB를 통한 결과 데이터 저장
+- Docker를 통한 컨테이너화
 
-_🚀 Quick note: I'm looking for job opportunities as a software developer, for exciting projects in ambitious companies. Anywhere in the world. Send me an email!_
+## 시스템 요구사항
 
-## Installation
+- Python 3.9 이상
+- OpenCV
+- MediaPipe
+- MariaDB
+- Docker
 
-Clone this project:
+## 설치 방법
 
-```shell
-git clone https://github.com/antoinelame/GazeTracking.git
+1. 저장소 클론
+```bash
+git clone https://github.com/your-username/gaze-tracking.git
+cd gaze-tracking
 ```
 
-### For Pip install
-Install these dependencies (NumPy, OpenCV, Dlib):
-
-```shell
+2. 필요한 패키지 설치
+```bash
 pip install -r requirements.txt
 ```
 
-> The Dlib library has four primary prerequisites: Boost, Boost.Python, CMake and X11/XQuartx. If you doesn't have them, you can [read this article](https://www.pyimagesearch.com/2017/03/27/how-to-install-dlib/) to know how to easily install them.
-
-
-### For Anaconda install
-Install these dependencies (NumPy, OpenCV, Dlib):
-
-```shell
-conda env create --file environment.yml
-#After creating environment, activate it
-conda activate GazeTracking
+3. Docker 이미지 빌드 및 실행
+```bash
+./build_and_run.sh
 ```
 
+## 사용 방법
 
-### Verify Installation
-
-Run the demo:
-
-```shell
+1. 프로그램 실행
+```bash
 python example.py
 ```
 
-## Simple Demo
+2. 종료
+- ESC 키를 눌러 프로그램 종료
 
-```python
-import cv2
-from gaze_tracking import GazeTracking
+## Docker 지원
 
-gaze = GazeTracking()
-webcam = cv2.VideoCapture(0)
-
-while True:
-    _, frame = webcam.read()
-    gaze.refresh(frame)
-
-    new_frame = gaze.annotated_frame()
-    text = ""
-
-    if gaze.is_right():
-        text = "Looking right"
-    elif gaze.is_left():
-        text = "Looking left"
-    elif gaze.is_center():
-        text = "Looking center"
-
-    cv2.putText(new_frame, text, (60, 60), cv2.FONT_HERSHEY_DUPLEX, 2, (255, 0, 0), 2)
-    cv2.imshow("Demo", new_frame)
-
-    if cv2.waitKey(1) == 27:
-        break
+### 빌드
+```bash
+docker build -t gaze-tracking .
 ```
 
-## Documentation
-
-In the following examples, `gaze` refers to an instance of the `GazeTracking` class.
-
-### Refresh the frame
-
-```python
-gaze.refresh(frame)
+### 실행
+```bash
+docker run --device=/dev/video0:/dev/video0 gaze-tracking
 ```
 
-Pass the frame to analyze (numpy.ndarray). If you want to work with a video stream, you need to put this instruction in a loop, like the example above.
+## 라즈베리파이 지원
 
-### Position of the left pupil
+라즈베리파이에서 실행하기 전에 다음 사항을 확인하세요:
 
-```python
-gaze.pupil_left_coords()
-```
+1. 카메라 모듈 활성화
+2. 필요한 시스템 패키지 설치
+3. Docker 설치
 
-Returns the coordinates (x,y) of the left pupil.
+## 라이선스
 
-### Position of the right pupil
+이 프로젝트는 MIT 라이선스를 따릅니다.
 
-```python
-gaze.pupil_right_coords()
-```
+라즈베리파이에서 실행시 
+docker run --device=/dev/video0:/dev/video0 gaze-tracking
 
-Returns the coordinates (x,y) of the right pupil.
+도커 네트워크 사용시
+docker network create gaze-network
+docker run --network gaze-network --device=/dev/video0:/dev/video0 gaze-tracking
 
-### Looking to the left
+GUI가 필요한 경우 X11 서버가 설치되어 있어야 함
 
-```python
-gaze.is_left()
-```
+권한 설정
+# 스크립트 실행 권한 부여
+chmod +x build_and_run.sh
 
-Returns `True` if the user is looking to the left.
-
-### Looking to the right
-
-```python
-gaze.is_right()
-```
-
-Returns `True` if the user is looking to the right.
-
-### Looking at the center
-
-```python
-gaze.is_center()
-```
-
-Returns `True` if the user is looking at the center.
-
-### Horizontal direction of the gaze
-
-```python
-ratio = gaze.horizontal_ratio()
-```
-
-Returns a number between 0.0 and 1.0 that indicates the horizontal direction of the gaze. The extreme right is 0.0, the center is 0.5 and the extreme left is 1.0.
-
-### Vertical direction of the gaze
-
-```python
-ratio = gaze.vertical_ratio()
-```
-
-Returns a number between 0.0 and 1.0 that indicates the vertical direction of the gaze. The extreme top is 0.0, the center is 0.5 and the extreme bottom is 1.0.
-
-### Blinking
-
-```python
-gaze.is_blinking()
-```
-
-Returns `True` if the user's eyes are closed.
-
-### Webcam frame
-
-```python
-frame = gaze.annotated_frame()
-```
-
-Returns the main frame with pupils highlighted.
-
-## You want to help?
-
-Your suggestions, bugs reports and pull requests are welcome and appreciated. You can also starring ⭐️ the project!
-
-If the detection of your pupils is not completely optimal, you can send me a video sample of you looking in different directions. I would use it to improve the algorithm.
-
-## Licensing
-
-This project is released by Antoine Lamé under the terms of the MIT Open Source License. View LICENSE for more information.
+/etc/modules에 다음이 있는지 확인해야함
+bcm2835-v4l2
