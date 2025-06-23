@@ -33,6 +33,18 @@ class ResultCommunicator:
             print(f"파일 읽기 오류 ({file_path}): {str(e)}")
             return None
 
+    def format_data_for_db(self, data, data_type):
+        """데이터를 DB 저장 형식으로 변환합니다."""
+        return {
+            'data_type': data_type,
+            'content': data,
+            'timestamp': datetime.now().isoformat(),
+            'metadata': {
+                'source': 'gaze_tracking',
+                'version': '1.0'
+            }
+        }
+
     def connect_to_database(self):
         """MariaDB에 연결합니다."""
         try:
@@ -51,18 +63,22 @@ class ResultCommunicator:
         try:
             cursor = connection.cursor()
             
-            # 현재 시간 추가
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # 데이터를 DB 형식으로 변환
+            formatted_data = self.format_data_for_db(data, table_name)
             
-            # 데이터를 JSON 문자열로 변환
-            json_data = json.dumps(data, ensure_ascii=False)
+            # JSON 문자열로 변환
+            json_data = json.dumps(formatted_data, ensure_ascii=False)
             
             # SQL 쿼리 실행
             query = f"""
-                INSERT INTO {table_name} (data, created_at)
-                VALUES (%s, %s)
+                INSERT INTO {table_name} 
+                (data, created_at, metadata) 
+                VALUES (%s, %s, %s)
             """
-            cursor.execute(query, (json_data, current_time))
+            current_time = datetime.now()
+            metadata = json.dumps(formatted_data['metadata'])
+            
+            cursor.execute(query, (json_data, current_time, metadata))
             
             connection.commit()
             print(f"데이터가 {table_name} 테이블에 성공적으로 저장되었습니다.")

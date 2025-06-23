@@ -2,6 +2,7 @@ from __future__ import division
 import os
 import cv2
 import dlib
+import numpy as np
 from .eye import Eye
 from .calibration import Calibration
 
@@ -18,6 +19,13 @@ class GazeTracking(object):
         self.eye_left = None
         self.eye_right = None
         self.calibration = Calibration()
+        
+        # 시선 방향 감지 설정
+        self.direction_threshold = 0.1  # 방향 감지 임계값
+        self.smoothing_factor = 0.3    # 부드러운 전환을 위한 계수
+        self.last_direction = 'center'  # 마지막 감지된 방향
+        self.direction_history = []     # 방향 기록
+        self.history_size = 5          # 기록 유지 크기
 
         # _face_detector is used to detect faces
         self._face_detector = dlib.get_frontal_face_detector()
@@ -82,9 +90,19 @@ class GazeTracking(object):
         the center is 0.5 and the extreme left is 1.0
         """
         if self.pupils_located:
+            # 왼쪽 눈과 오른쪽 눈의 동공 위치를 정규화
             pupil_left = self.eye_left.pupil.x / (self.eye_left.center[0] * 2 - 10)
             pupil_right = self.eye_right.pupil.x / (self.eye_right.center[0] * 2 - 10)
-            return (pupil_left + pupil_right) / 2
+            
+            # 두 눈의 평균값 계산
+            ratio = (pupil_left + pupil_right) / 2
+            
+            # 부드러운 전환을 위한 스무딩 적용
+            if hasattr(self, 'last_ratio'):
+                ratio = (ratio * self.smoothing_factor) + (self.last_ratio * (1 - self.smoothing_factor))
+            self.last_ratio = ratio
+            
+            return ratio
 
     def vertical_ratio(self):
         """Returns a number between 0.0 and 1.0 that indicates the
@@ -96,20 +114,48 @@ class GazeTracking(object):
             pupil_right = self.eye_right.pupil.y / (self.eye_right.center[1] * 2 - 10)
             return (pupil_left + pupil_right) / 2
 
+    def get_direction(self):
+        """현재 시선 방향을 반환합니다."""
+        if not self.pupils_located:
+            return 'unknown'
+            
+        ratio = self.horizontal_ratio()
+        
+        # 방향 결정
+        if ratio <= 0.40:
+            direction = 'right'
+        elif ratio >= 0.70:
+            direction = 'left'
+        else:
+            direction = 'center'
+            
+        # 방향 기록 업데이트
+        self.direction_history.append(direction)
+        if len(self.direction_history) > self.history_size:
+            self.direction_history.pop(0)
+            
+        # 가장 많이 감지된 방향 반환
+        if len(self.direction_history) >= 3:
+            direction_counts = {
+                'left': self.direction_history.count('left'),
+                'right': self.direction_history.count('right'),
+                'center': self.direction_history.count('center')
+            }
+            return max(direction_counts, key=direction_counts.get)
+            
+        return direction
+
     def is_right(self):
         """Returns true if the user is looking to the right"""
-        if self.pupils_located:
-            return self.horizontal_ratio() <= 0.35
+        return self.get_direction() == 'right'
 
     def is_left(self):
         """Returns true if the user is looking to the left"""
-        if self.pupils_located:
-            return self.horizontal_ratio() >= 0.65
+        return self.get_direction() == 'left'
 
     def is_center(self):
         """Returns true if the user is looking to the center"""
-        if self.pupils_located:
-            return self.is_right() is not True and self.is_left() is not True
+        return self.get_direction() == 'center'
 
     def is_blinking(self):
         """Returns true if the user closes his eyes"""
@@ -122,6 +168,7 @@ class GazeTracking(object):
         frame = self.frame.copy()
 
         if self.pupils_located:
+            # 동공 위치 표시
             color = (0, 255, 0)
             x_left, y_left = self.pupil_left_coords()
             x_right, y_right = self.pupil_right_coords()
@@ -129,5 +176,15 @@ class GazeTracking(object):
             cv2.line(frame, (x_left, y_left - 5), (x_left, y_left + 5), color)
             cv2.line(frame, (x_right - 5, y_right), (x_right + 5, y_right), color)
             cv2.line(frame, (x_right, y_right - 5), (x_right, y_right + 5), color)
+            
+            # 현재 방향 표시
+            direction = self.get_direction()
+            cv2.putText(frame, f"Direction: {direction}", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # 수평 비율 표시
+            ratio = self.horizontal_ratio()
+            cv2.putText(frame, f"Ratio: {ratio:.2f}", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
         return frame

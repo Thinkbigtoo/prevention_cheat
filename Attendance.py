@@ -1,66 +1,122 @@
-"""
-Demonstration of the GazeTracking library with hand recognition.
-Check the README.md for complete documentation.
-"""
-
 import cv2
 import mediapipe as mp
-from gaze_tracking import GazeTracking
+import math
+import time
 
-# Initialize GazeTracking
-gaze = GazeTracking()
+# === 유클리드 거리 계산 함수 (두 점 사이의 직선 거리) ===
+def euclidean_distance(p1, p2):
+    return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
-# Initialize MediaPipe Hands module
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands()
+def calculate_ear(eye_top, eye_bottom, eye_left, eye_right):
+    vertical = euclidean_distance(eye_top, eye_bottom)
+    horizontal = euclidean_distance(eye_left, eye_right)
+    return vertical / horizontal
 
-# Initialize MediaPipe Drawing module for drawing landmarks
-mp_drawing = mp.solutions.drawing_utils
+def detect_blink_and_drowsiness(ear, state, thresholds):
+    blink_text = ""
+    drowsiness_text = ""
 
-# Open a video capture object (0 for the default camera)
-webcam = cv2.VideoCapture(0)
+    if ear < thresholds["blink"]:
+        if not state["blinking"]:
+            state["blinking"] = True
+            blink_text = "Blink detected"
+            state["last_blink_time"] = time.time()
+            state["no_blink_detected"] = False
+    else:
+        state["blinking"] = False
 
-while True:
-    # We get a new frame from the webcam
-    _, frame = webcam.read()
-    
-    # Convert frame to RGB for MediaPipe
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Process hand landmarks
-    results = hands.process(frame_rgb)
-    
-    # We send this frame to GazeTracking to analyze it
-    gaze.refresh(frame)
-    
-    frame = gaze.annotated_frame()
-    text = ""
+    if ear < thresholds["closed"]:
+        if state["eye_closed_start_time"] is None:
+            state["eye_closed_start_time"] = time.time()
+        elif time.time() - state["eye_closed_start_time"] >= thresholds["drowsiness_time"]:
+            state["drowsy"] = True
+            drowsiness_text = "Drowsiness Detected!"
+    else:
+        if state["drowsy"]:  # 졸음 상태에서 벗어날 때 타이밍
+            state["last_blink_time"] = time.time()  # 💡 여기가 핵심
+        state["eye_closed_start_time"] = None
+        state["drowsy"] = False
 
-    if gaze.is_blinking():
-        text = "Blinking"
-    elif gaze.is_right():
-        text = "Looking right"
-    elif gaze.is_left():
-        text = "Looking left"
-    elif gaze.is_center():
-        text = "Looking center"
+    return blink_text, drowsiness_text
 
-    cv2.putText(frame, text, (90, 60), cv2.FONT_HERSHEY_DUPLEX, 1.6, (147, 58, 31), 2)
 
-    left_pupil = gaze.pupil_left_coords()
-    right_pupil = gaze.pupil_right_coords()
-    cv2.putText(frame, "Left pupil:  " + str(left_pupil), (90, 130), cv2.FONT_HERSHEY_DUPLEX, 0.9, (147, 58, 31), 1)
-    cv2.putText(frame, "Right pupil: " + str(right_pupil), (90, 165), cv2.FONT_HERSHEY_DUPLEX, 0.9, (147, 58, 31), 1)
+# === 경고 텍스트 표시 ===
+def draw_alerts(frame, alerts):
+    y_offset = 50
+    for alert in alerts:
+        if alert:
+            cv2.putText(frame, alert, (30, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            y_offset += 50
 
-    # Draw hand landmarks if detected
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+def process_frame(frame, face_mesh, state, thresholds):
+    h, w, _ = frame.shape
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    cv2.imshow("Demo", frame)
+    face_results = face_mesh.process(rgb)
 
-    if cv2.waitKey(1) == 27:
-        break
+    blink_text = ""
+    drowsiness_text = ""
+    absence_text = ""
 
-webcam.release()
-cv2.destroyAllWindows()
+    if face_results.multi_face_landmarks:
+        for landmarks in face_results.multi_face_landmarks:
+            top = (int(landmarks.landmark[159].x * w), int(landmarks.landmark[159].y * h))
+            bottom = (int(landmarks.landmark[145].x * w), int(landmarks.landmark[145].y * h))
+            left = (int(landmarks.landmark[33].x * w), int(landmarks.landmark[33].y * h))
+            right = (int(landmarks.landmark[133].x * w), int(landmarks.landmark[133].y * h))
+
+            ear = calculate_ear(top, bottom, left, right)
+
+            blink_text, drowsiness_text = detect_blink_and_drowsiness(ear, state, thresholds)
+
+    # 졸음 상태가 아닐 때만 'absence' 경고 표시
+    if not state["drowsy"] and (time.time() - state["last_blink_time"] >= thresholds["no_blink_time"]):
+        absence_text = "No blink detected - Possibly absent"
+
+    draw_alerts(frame, [blink_text, drowsiness_text, absence_text])
+    return frame
+
+# === 메인 루프 ===
+def main():
+    mp_face_mesh = mp.solutions.face_mesh
+
+    face_mesh = mp_face_mesh.FaceMesh(
+        refine_landmarks=True,
+        max_num_faces=1,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
+    thresholds = {
+        "blink": 0.21,
+        "closed": 0.15,
+        "drowsiness_time": 2.0,
+        "no_blink_time": 10.0
+    }
+
+    state = {
+        "blinking": False,
+        "eye_closed_start_time": None,
+        "last_blink_time": time.time(),
+        "drowsy": False,
+        "no_blink_detected": False
+    }
+
+    cap = cv2.VideoCapture(0)
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame = process_frame(frame, face_mesh, state, thresholds)
+        cv2.imshow('Attendance Monitor', frame)
+
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()

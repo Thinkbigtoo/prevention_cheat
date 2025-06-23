@@ -39,9 +39,9 @@ while True:
     if gaze.is_blinking():
         text = "Blinking"
     elif gaze.is_right():
-        text = "Looking right"
+        text = "possible cheating"
     elif gaze.is_left():
-        text = "Looking left"
+        text = "possible cheating"
     elif gaze.is_center():
         text = "Looking center"
 
